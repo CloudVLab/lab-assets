@@ -15,29 +15,51 @@ import argparse
 from google.cloud import logging as cloud_logging
 
 def get_project_id():
-    cmd = "gcloud config get-value project 2>/dev/null"
-    res = subprocess.check_output(cmd, shell=True).decode().strip()
-    return res
+    try:
+        cmd = "gcloud config get-value project 2>/dev/null"
+        res = subprocess.check_output(cmd, shell=True).decode().strip()
+        return res
+    except Exception:
+        return os.environ.get("PROJECT_ID", "")
 
 def log_event(task_num, status, details):
     try:
         project_id = get_project_id()
+        if not project_id:
+            print("[Warning] No GCP project ID detected; skipping Cloud Logging.")
+            return
+
         client = cloud_logging.Client(project=project_id)
         logger = client.logger("gsp546-validation")
+
+        task_keys = {
+            1: "task1_diagnostic_agent",
+            2: "task2_vector_rag",
+            3: "task3_a2a_orchestration",
+            4: "task4_cloud_run"
+        }
+
+        task_id = task_keys.get(task_num, f"task{task_num}")
         payload = {
-            "task": f"task{task_num}",
+            "task": task_id,
             f"step_{task_num}": status,
             "details": details
         }
+        # Emit structured JSON log
         logger.log_struct(payload, severity="INFO")
-        print(f"[Activity Tracking Logged] Task {task_num}: {status}")
+        # Emit text log for textPayload filters
+        logger.log_text(f"TASK_{task_num}_{status}", severity="INFO")
+        print(f"[Activity Tracking Logged] Task {task_num} ({task_id}): {status}")
     except Exception as e:
         print(f"[Warning] Could not emit Cloud Logging entry: {e}")
 
 def verify_task_1():
     print("Verifying Diagnostic Agent & Memory Persistence...")
-    res = subprocess.run(["pytest", "tests/test_multi_agent.py::test_diagnostic_agent_memory_persistence"], capture_output=True, text=True)
+    cmd = [sys.executable, "-m", "pytest", "tests/test_multi_agent.py::test_diagnostic_agent_memory_persistence"]
+    res = subprocess.run(cmd, capture_output=True, text=True)
     print(res.stdout)
+    if res.stderr:
+        print(res.stderr)
     if res.returncode != 0:
         print("FAILED: DiagnosticAgent memory persistence assertion failed.")
         return False
@@ -47,8 +69,11 @@ def verify_task_1():
 
 def verify_task_2():
     print("Verifying Vector Search RAG Retrieval Tool...")
-    res = subprocess.run(["pytest", "tests/test_multi_agent.py::test_vector_search_rag_grounding"], capture_output=True, text=True)
+    cmd = [sys.executable, "-m", "pytest", "tests/test_multi_agent.py::test_vector_search_rag_grounding"]
+    res = subprocess.run(cmd, capture_output=True, text=True)
     print(res.stdout)
+    if res.stderr:
+        print(res.stderr)
     if res.returncode != 0:
         print("FAILED: Vector Search RAG tool assertion failed.")
         return False
@@ -58,8 +83,11 @@ def verify_task_2():
 
 def verify_task_3():
     print("Verifying Multi-Agent A2A Orchestration...")
-    res = subprocess.run(["pytest", "tests/test_multi_agent.py::test_supervisor_multi_agent_a2a_orchestration"], capture_output=True, text=True)
+    cmd = [sys.executable, "-m", "pytest", "tests/test_multi_agent.py::test_supervisor_multi_agent_a2a_orchestration"]
+    res = subprocess.run(cmd, capture_output=True, text=True)
     print(res.stdout)
+    if res.stderr:
+        print(res.stderr)
     if res.returncode != 0:
         print("FAILED: Supervisor multi-agent A2A routing assertion failed.")
         return False
@@ -70,7 +98,7 @@ def verify_task_3():
 def verify_task_4():
     print("Verifying Cloud Run Deployment...")
     project_id = get_project_id()
-    cmd = f"gcloud run services describe gridcare-agent-service --platform managed --region us-central1 --format='value(status.url)' 2>/dev/null"
+    cmd = "gcloud run services describe gridcare-agent-service --platform managed --region us-central1 --format='value(status.url)' 2>/dev/null"
     try:
         url = subprocess.check_output(cmd, shell=True).decode().strip()
         if not url:

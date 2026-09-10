@@ -31,22 +31,22 @@ HARDWARE_KNOWLEDGE_BASE = [
 def query_hardware_manuals(query_text: str, top_k: int = 2) -> List[Dict[str, Any]]:
     """
     RAG retrieval tool simulating Vertex AI Vector Search endpoint retrieval
-    using text-embedding-005 cosine similarity.
+    using text-embedding-005 cosine similarity against HARDWARE_KNOWLEDGE_BASE.
+
+    TODO: Implement vector retrieval logic:
+    1. Parse query_text terms and match against document keywords or content.
+    2. Compute similarity score for each manual:
+       similarity_score = min(0.5 + (0.25 * keyword_overlap_count), 0.99)
+    3. Filter candidate results to documents where similarity_score >= 0.5.
+    4. Sort candidate matches in descending order by similarity_score.
+    5. Return the top `top_k` results as a list of dicts with keys:
+       - 'manual_id' (str)
+       - 'title' (str)
+       - 'content' (str)
+       - 'similarity_score' (float)
     """
-    query_terms = set(query_text.lower().split())
-    scored_docs = []
-    for doc in HARDWARE_KNOWLEDGE_BASE:
-        overlap = len(query_terms.intersection(set(doc["keywords"])))
-        score = 0.5 + (0.25 * overlap)
-        scored_docs.append({
-            "manual_id": doc["manual_id"],
-            "title": doc["title"],
-            "content": doc["content"],
-            "similarity_score": min(score, 0.99)
-        })
-    # Sort by score descending
-    scored_docs.sort(key=lambda x: x["similarity_score"], reverse=True)
-    return scored_docs[:top_k]
+    # TODO: Implement RAG retrieval scoring and ranking
+    raise NotImplementedError("Implement query_hardware_manuals with similarity scoring and top_k ranking.")
 
 def check_parts_inventory(part_number: str) -> Dict[str, Any]:
     """Queries regional parts depot stock for replacement components."""

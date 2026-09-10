@@ -4,7 +4,7 @@ Supervisor Agent implementation for Cymbal Solar GridCare.
 Orchestrates worker agents (Diagnostic, Inventory, Dispatch) via Agent-to-Agent (A2A) protocol.
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from agent.diagnostic_agent import DiagnosticAgent
 from agent.tools import query_hardware_manuals, check_parts_inventory
 
@@ -39,17 +39,19 @@ class GridCareSupervisorAgent:
         # Step 1: Diagnostic handoff
         diag_resp = self.diagnostic_agent.process_query(session_id, query)
         
-        inventory_result = None
-        dispatch_result = None
+        inventory_result: Optional[Dict[str, Any]] = None
+        dispatch_result: Optional[Dict[str, Any]] = None
 
         # Step 2: Handoff to inventory if replacement indicated
-        if "replace" in query.lower() or "hg-pm-480" in diag_resp["response"].lower():
+        if "replace" in query.lower() or "hg-pm-480" in diag_resp.get("response", "").lower():
             inventory_result = self.inventory_agent.check_stock("HG-PM-480")
             
             # Step 3: Handoff to dispatch if part in stock
             if inventory_result.get("status", {}).get("in_stock", False):
                 depot = inventory_result["status"].get("depot", "Central-Denver")
-                device_id = diag_resp.get("context", {}).get("device_id", "INV-HG-101")
+                # BUG (Troubleshooting Milestone): The supervisor assumes device_id is a top-level key
+                # in diag_resp, causing a KeyError because DiagnosticAgent stores it under diag_resp["context"]["device_id"].
+                device_id = diag_resp["device_id"]
                 dispatch_result = self.dispatch_agent.schedule_service(device_id, depot)
 
         return {
