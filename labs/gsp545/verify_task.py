@@ -34,6 +34,7 @@ def log_event(task_num, status, details):
             "details": details
         }
         logger.log_struct(payload, severity="INFO")
+        logger.log_text(f"TASK_{task_num}_PASSED", severity="INFO")
         print(f"[Activity Tracking Logged] Task {task_num}: {status}")
     except Exception as e:
         print(f"[Notice] Cloud Logging emission: {e}")
