@@ -1,0 +1,9 @@
+google-cloud-modelarmor>=0.1.0
+google-cloud-dlp>=3.15.0
+google-cloud-logging>=3.11.0
+google-auth>=2.29.0
+requests>=2.31.0
+pytest>=8.1.0
+pydantic>=2.6.0
+fastapi>=0.110.0
+uvicorn>=0.28.0
