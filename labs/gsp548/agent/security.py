@@ -68,14 +68,28 @@ def generate_2lo_token(target_service_account: str, scopes: Optional[List[str]] 
     if not scopes or REQUIRED_OAUTH_SCOPE not in scopes:
         raise ValueError(f"Required scope missing: {REQUIRED_OAUTH_SCOPE}")
 
-    source_credentials, _ = google.auth.default()
-    creds = impersonated_credentials.Credentials(
-        source_credentials=source_credentials,
-        target_principal=target_service_account,
-        target_scopes=scopes,
-        lifetime=lifetime_seconds
-    )
-    creds.refresh(Request())
+    try:
+        source_credentials, _ = google.auth.default()
+        creds = impersonated_credentials.Credentials(
+            source_credentials=source_credentials,
+            target_principal=target_service_account,
+            target_scopes=scopes,
+            lifetime=lifetime_seconds
+        )
+        creds.refresh(Request())
+    except Exception:
+        # In Cloud Shell, google.auth.default() falls back to VM metadata credentials.
+        # Fall back to authenticated user credentials via gcloud CLI:
+        import google.oauth2.credentials
+        user_token = subprocess.check_output("gcloud auth print-access-token 2>/dev/null", shell=True).decode().strip()
+        source_credentials = google.oauth2.credentials.Credentials(user_token)
+        creds = impersonated_credentials.Credentials(
+            source_credentials=source_credentials,
+            target_principal=target_service_account,
+            target_scopes=scopes,
+            lifetime=lifetime_seconds
+        )
+        creds.refresh(Request())
 
     return {
         "access_token": creds.token,
