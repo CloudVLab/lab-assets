@@ -92,25 +92,61 @@ def verify_task_1():
 
     # 2. Check Cloud DLP de-identification template: solarops-pii-mask-template
     print("Checking Cloud DLP de-identification template 'solarops-pii-mask-template'...")
-    cmd_dlp = [
-        "gcloud", "dlp", "deidentify-templates", "describe",
-        "solarops-pii-mask-template",
-        f"--location={location}",
-        "--format=json"
-    ]
-    rc_dlp, stdout_dlp, stderr_dlp = run_cmd(cmd_dlp)
-    if rc_dlp != 0:
-        # Try global or default location
-        cmd_dlp_global = [
-            "gcloud", "dlp", "deidentify-templates", "describe",
-            "solarops-pii-mask-template",
-            "--format=json"
-        ]
-        rc_dlp, stdout_dlp, stderr_dlp = run_cmd(cmd_dlp_global)
+    template_found = False
 
-    if rc_dlp != 0:
+    try:
+        import requests
+        import google.auth
+        import google.auth.transport.requests
+
+        credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        auth_req = google.auth.transport.requests.Request()
+        credentials.refresh(auth_req)
+        token = credentials.token
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "X-Goog-User-Project": project_id
+        }
+
+        check_urls = [
+            f"https://dlp.googleapis.com/v2/projects/{project_id}/locations/{location}/deidentifyTemplates/solarops-pii-mask-template",
+            f"https://dlp.googleapis.com/v2/projects/{project_id}/locations/us-central1/deidentifyTemplates/solarops-pii-mask-template",
+            f"https://dlp.googleapis.com/v2/projects/{project_id}/locations/global/deidentifyTemplates/solarops-pii-mask-template",
+            f"https://dlp.googleapis.com/v2/projects/{project_id}/deidentifyTemplates/solarops-pii-mask-template",
+        ]
+
+        for u in check_urls:
+            try:
+                resp = requests.get(u, headers=headers, timeout=10)
+                if resp.status_code == 200:
+                    template_found = True
+                    print(f"Cloud DLP de-identification template verified via API.")
+                    break
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[Warning] Could not query DLP API via Python client: {e}")
+
+    if not template_found:
+        # Fallback to curl
+        curl_urls = [
+            f"https://dlp.googleapis.com/v2/projects/{project_id}/locations/{location}/deidentifyTemplates/solarops-pii-mask-template",
+            f"https://dlp.googleapis.com/v2/projects/{project_id}/locations/us-central1/deidentifyTemplates/solarops-pii-mask-template",
+            f"https://dlp.googleapis.com/v2/projects/{project_id}/locations/global/deidentifyTemplates/solarops-pii-mask-template",
+            f"https://dlp.googleapis.com/v2/projects/{project_id}/deidentifyTemplates/solarops-pii-mask-template",
+        ]
+        for u in curl_urls:
+            cmd_curl = f"curl -s -o /dev/null -w '%{{http_code}}' -H 'Authorization: Bearer $(gcloud auth print-access-token 2>/dev/null)' -H 'X-Goog-User-Project: {project_id}' '{u}'"
+            rc_c, out_c, _ = run_cmd(["bash", "-c", cmd_curl])
+            if out_c.strip() == "200":
+                template_found = True
+                print(f"Cloud DLP de-identification template verified via curl.")
+                break
+
+    if not template_found:
         print("FAILED: Cloud DLP de-identification template 'solarops-pii-mask-template' not found.")
-        print("Hint: Create the template using 'gcloud dlp deidentify-templates create ...'")
+        print("Hint: Create the template using the Sensitive Data Protection REST API.")
         return False
 
     print("Cloud DLP de-identification template 'solarops-pii-mask-template' verified.")
