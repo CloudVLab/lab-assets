@@ -64,18 +64,19 @@ def verify_task_1():
     project_id = get_project_id()
 
     # 1. Check Model Armor template: cymbal-solar-agent-armor
-    print(f"Checking Model Armor template 'cymbal-solar-agent-armor' in project {project_id}...")
+    location = os.environ.get("REGION", "us-central1")
+    print(f"Checking Model Armor template 'cymbal-solar-agent-armor' in project {project_id} (location: {location})...")
     cmd_ma = [
-        "gcloud", "beta", "model-armor", "templates", "describe",
+        "gcloud", "model-armor", "templates", "describe",
         "cymbal-solar-agent-armor",
-        "--location=global",
+        f"--location={location}",
         "--format=json"
     ]
     rc, stdout, stderr = run_cmd(cmd_ma)
-    if rc != 0:
+    if rc != 0 and location != "us-central1":
         # Try us-central1 location fallback
         cmd_ma_uc1 = [
-            "gcloud", "beta", "model-armor", "templates", "describe",
+            "gcloud", "model-armor", "templates", "describe",
             "cymbal-solar-agent-armor",
             "--location=us-central1",
             "--format=json"
@@ -84,7 +85,7 @@ def verify_task_1():
 
     if rc != 0:
         print("FAILED: Model Armor template 'cymbal-solar-agent-armor' not found.")
-        print("Hint: Create the template using 'gcloud beta model-armor templates create cymbal-solar-agent-armor --location=global ...'")
+        print(f"Hint: Create the template using 'gcloud model-armor templates create cymbal-solar-agent-armor --location={location} ...'")
         return False
 
     print("Model Armor template 'cymbal-solar-agent-armor' verified.")
@@ -94,18 +95,18 @@ def verify_task_1():
     cmd_dlp = [
         "gcloud", "dlp", "deidentify-templates", "describe",
         "solarops-pii-mask-template",
+        f"--location={location}",
         "--format=json"
     ]
     rc_dlp, stdout_dlp, stderr_dlp = run_cmd(cmd_dlp)
     if rc_dlp != 0:
-        # Try with location flag
-        cmd_dlp_loc = [
+        # Try global or default location
+        cmd_dlp_global = [
             "gcloud", "dlp", "deidentify-templates", "describe",
             "solarops-pii-mask-template",
-            "--location=global",
             "--format=json"
         ]
-        rc_dlp, stdout_dlp, stderr_dlp = run_cmd(cmd_dlp_loc)
+        rc_dlp, stdout_dlp, stderr_dlp = run_cmd(cmd_dlp_global)
 
     if rc_dlp != 0:
         print("FAILED: Cloud DLP de-identification template 'solarops-pii-mask-template' not found.")

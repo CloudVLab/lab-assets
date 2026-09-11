@@ -21,18 +21,19 @@ def get_project_id() -> str:
         pass
     return os.environ.get("GOOGLE_CLOUD_PROJECT", "test-project")
 
-def mask_text_with_dlp_template(text: str, project_id: Optional[str] = None, template_id: str = "solarops-pii-mask-template", location: str = "global") -> str:
+def mask_text_with_dlp_template(text: str, project_id: Optional[str] = None, template_id: str = "solarops-pii-mask-template", location: Optional[str] = None) -> str:
     """
     De-identifies sensitive data in text using Cloud DLP de-identification template.
     Falls back to deterministic masking patterns if offline or testing locally.
     """
     proj = project_id or get_project_id()
-    template_name = f"projects/{proj}/locations/{location}/deidentifyTemplates/{template_id}"
+    loc = location or os.environ.get("REGION", "us-central1")
+    template_name = f"projects/{proj}/locations/{loc}/deidentifyTemplates/{template_id}"
 
     try:
         from google.cloud import dlp_v2
         client = dlp_v2.DlpServiceClient()
-        parent = f"projects/{proj}/locations/{location}"
+        parent = f"projects/{proj}/locations/{loc}"
 
         item = {"value": text}
         response = client.deidentify_content(
