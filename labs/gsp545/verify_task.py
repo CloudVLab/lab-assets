@@ -22,7 +22,10 @@ except ImportError:
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def get_project_id():
+def get_project_id(cli_project=None):
+    if cli_project and cli_project.strip() and cli_project != "(unset)":
+        return cli_project.strip()
+
     # 1. Check environment variables (DEVSHELL_PROJECT_ID is default in Cloud Shell)
     for env_var in ["DEVSHELL_PROJECT_ID", "GOOGLE_CLOUD_PROJECT", "GCP_PROJECT", "PROJECT_ID"]:
         val = os.environ.get(env_var, "").strip()
@@ -38,7 +41,17 @@ def get_project_id():
         except Exception:
             pass
 
-    # 3. Check Google Auth default credentials
+    # 3. Auto-discover via gcloud projects list (standard in Cloud Shell / Qwiklabs)
+    try:
+        res = subprocess.check_output("gcloud projects list --format='value(projectId)' --limit=1 2>/dev/null", shell=True).decode().strip()
+        if res and res != "(unset)":
+            os.environ["GOOGLE_CLOUD_PROJECT"] = res
+            subprocess.run(f"gcloud config set project {res} 2>/dev/null", shell=True)
+            return res
+    except Exception:
+        pass
+
+    # 4. Check Google Auth default credentials
     try:
         import google.auth
         _, auth_project = google.auth.default()
@@ -49,16 +62,17 @@ def get_project_id():
 
     return None
 
-def log_event(task_num, status, details):
+def log_event(task_num, status, details, project_id=None):
     if not HAS_LOGGING:
-        return
+        return False
     try:
-        project_id = get_project_id()
-        if not project_id:
-            print("[Notice] Cloud Logging skipped: No Google Cloud Project ID detected in environment.")
-            return
+        resolved_project = get_project_id(project_id)
+        if not resolved_project:
+            print("[ERROR] Cloud Logging skipped: Could not resolve Google Cloud Project ID.")
+            print("Please run 'gcloud config set project <PROJECT_ID>' or re-run with '--project <PROJECT_ID>'.")
+            return False
 
-        client = cloud_logging.Client(project=project_id)
+        client = cloud_logging.Client(project=resolved_project)
         logger = client.logger("gsp545-validation")
         payload = {
             "task": f"task{task_num}",
@@ -67,11 +81,13 @@ def log_event(task_num, status, details):
         }
         logger.log_struct(payload, severity="INFO")
         logger.log_text(f"TASK_{task_num}_PASSED", severity="INFO")
-        print(f"[Activity Tracking Logged] Task {task_num}: {status} (Project: {project_id})")
+        print(f"[Activity Tracking Logged] Task {task_num}: {status} (Project: {resolved_project})")
+        return True
     except Exception as e:
-        print(f"[Notice] Cloud Logging emission: {e}")
+        print(f"[ERROR] Cloud Logging emission failed: {e}")
+        return False
 
-def verify_task_1():
+def verify_task_1(project_id=None):
     print("Checking Antigravity Workspace, MCP Configuration, and Extension Hooks...")
     config_paths = [
         os.path.expanduser("~/.gemini/antigravity.json"),
@@ -160,11 +176,11 @@ def verify_task_1():
         return False
 
     print(f"SUCCESS: Task 1 verified ({matched_path} with MCP server and extension hook).")
-    log_event(1, "PASSED", "Antigravity MCP server and extension hook registered successfully.")
+    log_event(1, "PASSED", "Antigravity MCP server and extension hook registered successfully.", project_id=project_id)
     return True
 
 
-def verify_task_2():
+def verify_task_2(project_id=None):
     print("Checking Custom Skills and Governance Rules...")
     skill_path = os.path.expanduser("~/.gemini/skills/audit-telemetry-fix/SKILL.md")
     rules_path = os.path.expanduser("~/.gemini/rules.md")
@@ -196,10 +212,10 @@ def verify_task_2():
         return False
 
     print("SUCCESS: Task 2 verified (Custom skill and governance rules created).")
-    log_event(2, "PASSED", "Custom skill and rules.md verified.")
+    log_event(2, "PASSED", "Custom skill and rules.md verified.", project_id=project_id)
     return True
 
-def verify_task_3():
+def verify_task_3(project_id=None):
     print("Verifying Antigravity Subagent Execution and Automated Tests...")
 
     # 1. Verify Subagent Execution Trace
@@ -266,10 +282,10 @@ def verify_task_3():
             return False
 
     print("SUCCESS: Task 3 verified (Subagent execution trace and all pytest assertions passed).")
-    log_event(3, "PASSED", "Subagent execution trace verified and all pytest assertions passed.")
+    log_event(3, "PASSED", "Subagent execution trace verified and all pytest assertions passed.", project_id=project_id)
     return True
 
-def verify_task_4():
+def verify_task_4(project_id=None):
     print("Checking Agents CLI Validation, Evaluation Report, and Package Bundle...")
     manifest_path = os.path.join(BASE_DIR, "dist", "skill-manifest.json")
     archive_path = os.path.join(BASE_DIR, "dist", "audit-telemetry-fix.tar.gz")
@@ -299,22 +315,23 @@ def verify_task_4():
         return False
 
     print("SUCCESS: Task 4 verified (Agents CLI evaluation report and distribution package verified).")
-    log_event(4, "PASSED", "Agents CLI evaluation report and distribution package verified.")
+    log_event(4, "PASSED", "Agents CLI evaluation report and distribution package verified.", project_id=project_id)
     return True
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", type=int, required=True, choices=[1, 2, 3, 4])
+    parser.add_argument("--project", help="Google Cloud project ID (optional override)")
     args = parser.parse_args()
 
     if args.task == 1:
-        success = verify_task_1()
+        success = verify_task_1(project_id=args.project)
     elif args.task == 2:
-        success = verify_task_2()
+        success = verify_task_2(project_id=args.project)
     elif args.task == 3:
-        success = verify_task_3()
+        success = verify_task_3(project_id=args.project)
     elif args.task == 4:
-        success = verify_task_4()
+        success = verify_task_4(project_id=args.project)
 
     sys.exit(0 if success else 1)
 
