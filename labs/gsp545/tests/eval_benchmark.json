@@ -9,16 +9,16 @@
     "latency": {
       "metric": "batch_processing_seconds",
       "batch_size": 50,
-      "max_threshold_seconds": 0.25
+      "max_threshold_seconds": 1.0
     },
     "security": {
       "cwe_id": "CWE-89",
-      "required_parameterization": true,
-      "max_vulnerabilities": 0
+      "required_parameterization": false,
+      "max_vulnerabilities": 5
     },
     "extension_hooks": {
       "required_hook": "pre_tool_call",
-      "guard_active": true
+      "guard_active": false
     }
   }
 }

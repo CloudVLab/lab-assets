@@ -355,24 +355,34 @@ def run_eval(skill_name, benchmark_path, output_path):
     # 1. Latency Benchmark
     print("\n[Benchmark 1/3] Performance Latency SLA...")
     try:
-        from telemetry_processor import process_telemetry_batch
-        test_records = [{"device_id": f"INV-{i:03d}", "voltage": 480.0, "temperature": 55.0, "efficiency": 0.95} for i in range(50)]
-        start_t = time.time()
-        batch_res = process_telemetry_batch(test_records)
-        elapsed = time.time() - start_t
-        threshold = benchmark_cfg.get("benchmarks", {}).get("latency", {}).get("max_threshold_seconds", 0.25)
-        latency_pass = elapsed < threshold and len(batch_res) == 50
-        if latency_pass:
-            passed_checks += 1
-            print(f"  [PASS] 50 records processed in {elapsed:.3f}s (Threshold: < {threshold}s).")
+        latency_cfg = benchmark_cfg.get("benchmarks", {}).get("latency", {})
+        threshold = latency_cfg.get("max_threshold_seconds")
+        if threshold is None or threshold > 0.25:
+            print(f"  [FAIL] Benchmark SLA policy violation: 'max_threshold_seconds' must be configured to <= 0.25s (found: {threshold}s).")
+            results["latency_benchmark"] = {
+                "batch_size": 50,
+                "threshold_seconds": threshold,
+                "passed": False,
+                "error": f"max_threshold_seconds must be <= 0.25 (configured: {threshold})"
+            }
         else:
-            print(f"  [FAIL] Processing took {elapsed:.3f}s, exceeding threshold of {threshold}s.")
-        results["latency_benchmark"] = {
-            "batch_size": 50,
-            "elapsed_seconds": round(elapsed, 4),
-            "threshold_seconds": threshold,
-            "passed": latency_pass
-        }
+            from telemetry_processor import process_telemetry_batch
+            test_records = [{"device_id": f"INV-{i:03d}", "voltage": 480.0, "temperature": 55.0, "efficiency": 0.95} for i in range(50)]
+            start_t = time.time()
+            batch_res = process_telemetry_batch(test_records)
+            elapsed = time.time() - start_t
+            latency_pass = elapsed < threshold and len(batch_res) == 50
+            if latency_pass:
+                passed_checks += 1
+                print(f"  [PASS] 50 records processed in {elapsed:.3f}s (Threshold: < {threshold}s).")
+            else:
+                print(f"  [FAIL] Processing took {elapsed:.3f}s, exceeding threshold of {threshold}s.")
+            results["latency_benchmark"] = {
+                "batch_size": 50,
+                "elapsed_seconds": round(elapsed, 4),
+                "threshold_seconds": threshold,
+                "passed": latency_pass
+            }
     except Exception as e:
         print(f"  [FAIL] Latency benchmark error: {e}")
         results["latency_benchmark"] = {"passed": False, "error": str(e)}
@@ -380,49 +390,75 @@ def run_eval(skill_name, benchmark_path, output_path):
     # 2. Security Benchmark (CWE-89)
     print("\n[Benchmark 2/3] Application-Layer Security (CWE-89 SQL Injection)...")
     try:
-        from db.error_logger import search_errors_by_device, log_error_event
-        payload = "INV-TEST' OR '1'='1"
-        search_res = search_errors_by_device(payload)
-        sec_pass = len(search_res) == 0
-        if sec_pass:
-            passed_checks += 1
-            print("  [PASS] SQL injection payload safely parameterized. 0 unescaped records returned.")
+        sec_cfg = benchmark_cfg.get("benchmarks", {}).get("security", {})
+        req_param = sec_cfg.get("required_parameterization")
+        max_vulns = sec_cfg.get("max_vulnerabilities")
+        if req_param is not True or max_vulns != 0:
+            print(f"  [FAIL] Benchmark security policy violation: Enterprise standards require 'required_parameterization': true and 'max_vulnerabilities': 0 (found: required_parameterization={req_param}, max_vulnerabilities={max_vulns}).")
+            results["security_benchmark"] = {
+                "cwe_id": "CWE-89",
+                "required_parameterization": req_param,
+                "max_vulnerabilities": max_vulns,
+                "passed": False,
+                "error": "Enterprise policy requires required_parameterization: true and max_vulnerabilities: 0"
+            }
         else:
-            print(f"  [FAIL] SQL injection detected! Returned unescaped rows: {search_res}")
-        results["security_benchmark"] = {
-            "cwe_id": "CWE-89",
-            "vulnerabilities_detected": 0 if sec_pass else len(search_res),
-            "passed": sec_pass
-        }
+            from db.error_logger import search_errors_by_device, log_error_event
+            payload = "INV-TEST' OR '1'='1"
+            search_res = search_errors_by_device(payload)
+            sec_pass = len(search_res) == 0
+            if sec_pass:
+                passed_checks += 1
+                print("  [PASS] SQL injection payload safely parameterized. 0 unescaped records returned.")
+            else:
+                print(f"  [FAIL] SQL injection detected! Returned unescaped rows: {search_res}")
+            results["security_benchmark"] = {
+                "cwe_id": "CWE-89",
+                "vulnerabilities_detected": 0 if sec_pass else len(search_res),
+                "passed": sec_pass
+            }
     except Exception as e:
         print(f"  [FAIL] Security benchmark error: {e}")
         results["security_benchmark"] = {"passed": False, "error": str(e)}
 
     # 3. Hook Benchmark
     print("\n[Benchmark 3/3] Extension Hook & Guardrail Verification...")
-    config_path = os.path.expanduser("~/.gemini/antigravity.json")
-    hook_pass = False
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-            hook_file = cfg.get("hooks", {}).get("pre_tool_call")
-            if hook_file and os.path.exists(os.path.expanduser(hook_file)):
-                hook_pass = True
-                passed_checks += 1
-                print(f"  [PASS] Extension hook 'pre_tool_call' verified: {hook_file}")
+    try:
+        hook_cfg = benchmark_cfg.get("benchmarks", {}).get("extension_hooks", {})
+        guard_active = hook_cfg.get("guard_active")
+        if guard_active is not True:
+            print(f"  [FAIL] Benchmark hook policy violation: 'guard_active' must be true to enforce pre-tool execution guardrails (found: {guard_active}).")
+            results["hook_benchmark"] = {
+                "hook_name": "pre_tool_call",
+                "guard_active": guard_active,
+                "enforced": False,
+                "passed": False,
+                "error": "Enterprise policy requires guard_active: true"
+            }
+        else:
+            config_path = os.path.expanduser("~/.gemini/antigravity.json")
+            hook_pass = False
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                hook_file = cfg.get("hooks", {}).get("pre_tool_call")
+                if hook_file and os.path.exists(os.path.expanduser(hook_file)):
+                    hook_pass = True
+                    passed_checks += 1
+                    print(f"  [PASS] Extension hook 'pre_tool_call' verified: {hook_file}")
+                else:
+                    print(f"  [FAIL] Extension hook file missing: {hook_file}")
             else:
-                print(f"  [FAIL] Extension hook file missing: {hook_file}")
-        except Exception as e:
-            print(f"  [FAIL] Hook verification error: {e}")
-    else:
-        print("  [FAIL] ~/.gemini/antigravity.json missing.")
+                print("  [FAIL] ~/.gemini/antigravity.json missing.")
 
-    results["hook_benchmark"] = {
-        "hook_name": "pre_tool_call",
-        "enforced": hook_pass,
-        "passed": hook_pass
-    }
+            results["hook_benchmark"] = {
+                "hook_name": "pre_tool_call",
+                "enforced": hook_pass,
+                "passed": hook_pass
+            }
+    except Exception as e:
+        print(f"  [FAIL] Hook verification error: {e}")
+        results["hook_benchmark"] = {"passed": False, "error": str(e)}
 
     overall_status = "PASSED" if passed_checks == total_checks else "FAILED"
     score = round((passed_checks / total_checks) * 100, 1)

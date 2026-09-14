@@ -291,8 +291,35 @@ def verify_task_4(project_id=None):
     manifest_path = os.path.join(BASE_DIR, "dist", "skill-manifest.json")
     archive_path = os.path.join(BASE_DIR, "dist", "audit-telemetry-fix.tar.gz")
     eval_report_path = os.path.join(BASE_DIR, "dist", "eval_report.json")
+    benchmark_path = os.path.join(BASE_DIR, "tests", "eval_benchmark.json")
 
-    # 1. Evaluation Report Check
+    # 1. Benchmark Configuration Check
+    if not os.path.exists(benchmark_path):
+        print(f"FAILED: Benchmark configuration not found at {benchmark_path}.")
+        return False
+
+    try:
+        with open(benchmark_path, "r", encoding="utf-8") as f:
+            b_cfg = json.load(f)
+        lat_thresh = b_cfg.get("benchmarks", {}).get("latency", {}).get("max_threshold_seconds")
+        sec_param = b_cfg.get("benchmarks", {}).get("security", {}).get("required_parameterization")
+        sec_vulns = b_cfg.get("benchmarks", {}).get("security", {}).get("max_vulnerabilities")
+        hook_guard = b_cfg.get("benchmarks", {}).get("extension_hooks", {}).get("guard_active")
+
+        if lat_thresh is None or lat_thresh > 0.25:
+            print(f"FAILED: tests/eval_benchmark.json latency threshold must be <= 0.25s (found: {lat_thresh}).")
+            return False
+        if sec_param is not True or sec_vulns != 0:
+            print("FAILED: tests/eval_benchmark.json security benchmark must specify required_parameterization: true and max_vulnerabilities: 0.")
+            return False
+        if hook_guard is not True:
+            print("FAILED: tests/eval_benchmark.json extension_hooks benchmark must specify guard_active: true.")
+            return False
+    except Exception as e:
+        print(f"FAILED: Could not parse tests/eval_benchmark.json: {e}")
+        return False
+
+    # 2. Evaluation Report Check
     if not os.path.exists(eval_report_path) or os.path.getsize(eval_report_path) == 0:
         print("FAILED: Evaluation report not found at dist/eval_report.json. Run 'agents-cli eval run'.")
         return False
@@ -303,11 +330,14 @@ def verify_task_4(project_id=None):
         if report.get("status") != "PASSED":
             print(f"FAILED: Evaluation report status is '{report.get('status')}'. Expected 'PASSED'.")
             return False
+        if report.get("score") != 100.0:
+            print(f"FAILED: Evaluation report score is {report.get('score')}. Expected 100.0.")
+            return False
     except Exception as e:
         print(f"FAILED: Could not parse eval_report.json: {e}")
         return False
 
-    # 2. Distribution Bundle Check
+    # 3. Distribution Bundle Check
     has_manifest = os.path.exists(manifest_path) and os.path.getsize(manifest_path) > 0
     has_archive = os.path.exists(archive_path) and os.path.getsize(archive_path) > 0
 
