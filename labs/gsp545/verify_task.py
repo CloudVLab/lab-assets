@@ -72,9 +72,48 @@ def verify_task_1():
         print("FAILED: 'command' field not specified for telemetry-db-mcp.")
         return False
 
+    args = server_cfg.get("args", [])
+    if not args or not isinstance(args, list):
+        print("FAILED: 'args' field not specified as a list for telemetry-db-mcp.")
+        return False
+
+    server_script = None
+    for a in args:
+        expanded = os.path.expandvars(os.path.expanduser(a))
+        if os.path.isfile(expanded) and expanded.endswith("mcp_server.py"):
+            server_script = expanded
+            break
+
+    if not server_script:
+        print(f"FAILED: 'args' does not contain a valid path to an existing mcp_server.py file. Given: {args}")
+        return False
+
+    # Test tool discovery and invocation via stdio JSON-RPC
+    try:
+        resolved_cmd = [server_cfg["command"]] + [os.path.expandvars(os.path.expanduser(a)) for a in args]
+        proc = subprocess.run(
+            resolved_cmd,
+            input=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).encode(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10
+        )
+        if proc.returncode != 0:
+            print(f"FAILED: MCP server execution failed with return code {proc.returncode}: {proc.stderr.decode()}")
+            return False
+        response = json.loads(proc.stdout.decode())
+        tools = [t.get("name") for t in response.get("result", {}).get("tools", [])]
+        if "query_telemetry_schema" not in tools or "inspect_error_logs" not in tools:
+            print(f"FAILED: MCP server does not expose required tools. Found: {tools}")
+            return False
+    except Exception as e:
+        print(f"FAILED: Could not test MCP server tools/list: {e}")
+        return False
+
     print(f"SUCCESS: Task 1 verified ({matched_path}).")
     log_event(1, "PASSED", "Antigravity MCP server registered successfully.")
     return True
+
 
 def verify_task_2():
     print("Checking Custom Skills and Governance Rules...")
