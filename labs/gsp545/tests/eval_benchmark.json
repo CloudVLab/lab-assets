@@ -1,0 +1,24 @@
+{
+  "benchmark_version": "1.0.0",
+  "skill": "audit-telemetry-fix",
+  "targets": [
+    "telemetry_processor.py",
+    "db/error_logger.py"
+  ],
+  "benchmarks": {
+    "latency": {
+      "metric": "batch_processing_seconds",
+      "batch_size": 50,
+      "max_threshold_seconds": 0.25
+    },
+    "security": {
+      "cwe_id": "CWE-89",
+      "required_parameterization": true,
+      "max_vulnerabilities": 0
+    },
+    "extension_hooks": {
+      "required_hook": "pre_tool_call",
+      "guard_active": true
+    }
+  }
+}

@@ -13,7 +13,12 @@ import os
 import json
 import subprocess
 import argparse
-from google.cloud import logging as cloud_logging
+import shutil
+try:
+    from google.cloud import logging as cloud_logging
+    HAS_LOGGING = True
+except ImportError:
+    HAS_LOGGING = False
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -26,6 +31,8 @@ def get_project_id():
         return os.environ.get("GOOGLE_CLOUD_PROJECT", "test-project")
 
 def log_event(task_num, status, details):
+    if not HAS_LOGGING:
+        return
     try:
         project_id = get_project_id()
         client = cloud_logging.Client(project=project_id)
@@ -42,7 +49,7 @@ def log_event(task_num, status, details):
         print(f"[Notice] Cloud Logging emission: {e}")
 
 def verify_task_1():
-    print("Checking Antigravity MCP Configuration...")
+    print("Checking Antigravity Workspace, MCP Configuration, and Extension Hooks...")
     config_paths = [
         os.path.expanduser("~/.gemini/antigravity.json"),
         os.path.expanduser("~/.gemini/mcp_config.json"),
@@ -61,9 +68,10 @@ def verify_task_1():
                 print(f"Error reading {cp}: {e}")
 
     if not cfg:
-        print(f"FAILED: No Antigravity MCP configuration found at ~/.gemini/antigravity.json.")
+        print(f"FAILED: No Antigravity configuration found at ~/.gemini/antigravity.json.")
         return False
 
+    # 1. MCP Server Check
     mcp_servers = cfg.get("mcpServers", {})
     if "telemetry-db-mcp" not in mcp_servers:
         print("FAILED: Server 'telemetry-db-mcp' not registered in mcpServers.")
@@ -90,7 +98,7 @@ def verify_task_1():
         print(f"FAILED: 'args' does not contain a valid path to an existing mcp_server.py file. Given: {args}")
         return False
 
-    # Test tool discovery and invocation via stdio JSON-RPC
+    # Test tool discovery via stdio JSON-RPC
     try:
         resolved_cmd = [server_cfg["command"]] + [os.path.expandvars(os.path.expanduser(a)) for a in args]
         proc = subprocess.run(
@@ -112,8 +120,24 @@ def verify_task_1():
         print(f"FAILED: Could not test MCP server tools/list: {e}")
         return False
 
-    print(f"SUCCESS: Task 1 verified ({matched_path}).")
-    log_event(1, "PASSED", "Antigravity MCP server registered successfully.")
+    # 2. Extension Hook Check
+    hooks = cfg.get("hooks", {})
+    hook_path = hooks.get("pre_tool_call")
+    if not hook_path:
+        print("FAILED: Missing 'pre_tool_call' extension hook configuration under 'hooks' in antigravity.json.")
+        return False
+
+    expanded_hook = os.path.expandvars(os.path.expanduser(hook_path))
+    if not os.path.exists(expanded_hook):
+        print(f"FAILED: Extension hook script not found at {expanded_hook}.")
+        return False
+
+    if os.path.getsize(expanded_hook) < 20:
+        print(f"FAILED: Extension hook script at {expanded_hook} appears empty.")
+        return False
+
+    print(f"SUCCESS: Task 1 verified ({matched_path} with MCP server and extension hook).")
+    log_event(1, "PASSED", "Antigravity MCP server and extension hook registered successfully.")
     return True
 
 
@@ -153,25 +177,97 @@ def verify_task_2():
     return True
 
 def verify_task_3():
-    print("Running Automated Performance & Security Tests (pytest)...")
-    res = subprocess.run(["pytest", os.path.join(BASE_DIR, "tests")], cwd=BASE_DIR, capture_output=True, text=True)
-    print(res.stdout)
-    if res.stderr:
-        print(res.stderr)
+    print("Verifying Antigravity Subagent Execution and Automated Tests...")
 
-    if res.returncode != 0:
-        print("FAILED: One or more pytest assertions failed. Ensure performance and security regressions are resolved.")
+    # 1. Verify Subagent Execution Trace
+    trace_path = os.path.expanduser("~/.gemini/agent_trace.json")
+    if not os.path.exists(trace_path):
+        print("FAILED: Subagent execution trace not found at ~/.gemini/agent_trace.json.")
+        print("Ensure you executed: agents-cli subagent run --skill audit-telemetry-fix --rules ~/.gemini/rules.md ...")
         return False
 
-    print("SUCCESS: Task 3 verified (All performance and security tests passed).")
-    log_event(3, "PASSED", "All pytest assertions passed.")
+    try:
+        with open(trace_path, "r", encoding="utf-8") as f:
+            trace = json.load(f)
+        if trace.get("skill") != "audit-telemetry-fix":
+            print(f"FAILED: Trace indicates unexpected skill '{trace.get('skill')}'. Expected 'audit-telemetry-fix'.")
+            return False
+        if trace.get("test_verification", {}).get("status") != "PASSED":
+            print(f"FAILED: Subagent execution trace indicates test failures: {trace.get('test_verification')}")
+            return False
+    except Exception as e:
+        print(f"FAILED: Could not parse ~/.gemini/agent_trace.json: {e}")
+        return False
+
+    # 2. Run Automated Pytest
+    print("Running Automated Performance & Security Tests (pytest)...")
+    pytest_bin = "pytest"
+    venv_pytest = os.path.join(BASE_DIR, "venv", "bin", "pytest")
+    if not shutil.which("pytest") and os.path.exists(venv_pytest):
+        pytest_bin = venv_pytest
+
+    if shutil.which(pytest_bin):
+        res = subprocess.run([pytest_bin, os.path.join(BASE_DIR, "tests")], cwd=BASE_DIR, capture_output=True, text=True)
+        print(res.stdout)
+        if res.stderr:
+            print(res.stderr)
+        if res.returncode != 0:
+            print("FAILED: One or more pytest assertions failed. Ensure performance and security regressions are resolved.")
+            return False
+    else:
+        print("  [Notice] pytest not on PATH; running in-process test verification fallback...")
+        try:
+            import pytest
+        except ImportError:
+            class MockPytest:
+                @staticmethod
+                def fixture(*args, **kwargs):
+                    def decorator(fn):
+                        return fn
+                    return decorator
+                @staticmethod
+                def fail(msg):
+                    raise AssertionError(msg)
+            sys.modules["pytest"] = MockPytest()
+        sys.path.insert(0, BASE_DIR)
+        try:
+            from tests.test_performance import test_telemetry_batch_performance
+            from tests.test_security import setup_test_db, test_sql_injection_defense, test_log_error_event_injection_defense
+            setup_test_db()
+            test_telemetry_batch_performance()
+            test_sql_injection_defense()
+            test_log_error_event_injection_defense()
+            print("  [PASS] All 3 performance and security assertions passed in-process.")
+        except Exception as e:
+            print(f"FAILED: In-process test verification failed: {e}")
+            return False
+
+    print("SUCCESS: Task 3 verified (Subagent execution trace and all pytest assertions passed).")
+    log_event(3, "PASSED", "Subagent execution trace verified and all pytest assertions passed.")
     return True
 
 def verify_task_4():
-    print("Checking Agents CLI Validation and Package Bundle...")
+    print("Checking Agents CLI Validation, Evaluation Report, and Package Bundle...")
     manifest_path = os.path.join(BASE_DIR, "dist", "skill-manifest.json")
     archive_path = os.path.join(BASE_DIR, "dist", "audit-telemetry-fix.tar.gz")
+    eval_report_path = os.path.join(BASE_DIR, "dist", "eval_report.json")
 
+    # 1. Evaluation Report Check
+    if not os.path.exists(eval_report_path) or os.path.getsize(eval_report_path) == 0:
+        print("FAILED: Evaluation report not found at dist/eval_report.json. Run 'agents-cli eval run'.")
+        return False
+
+    try:
+        with open(eval_report_path, "r", encoding="utf-8") as f:
+            report = json.load(f)
+        if report.get("status") != "PASSED":
+            print(f"FAILED: Evaluation report status is '{report.get('status')}'. Expected 'PASSED'.")
+            return False
+    except Exception as e:
+        print(f"FAILED: Could not parse eval_report.json: {e}")
+        return False
+
+    # 2. Distribution Bundle Check
     has_manifest = os.path.exists(manifest_path) and os.path.getsize(manifest_path) > 0
     has_archive = os.path.exists(archive_path) and os.path.getsize(archive_path) > 0
 
@@ -179,8 +275,8 @@ def verify_task_4():
         print("FAILED: Packaged skill distribution bundle not found in dist/. Run 'agents-cli package'.")
         return False
 
-    print("SUCCESS: Task 4 verified (Agents CLI validation and distribution package verified).")
-    log_event(4, "PASSED", "Agents CLI validation and distribution package verified.")
+    print("SUCCESS: Task 4 verified (Agents CLI evaluation report and distribution package verified).")
+    log_event(4, "PASSED", "Agents CLI evaluation report and distribution package verified.")
     return True
 
 def main():
