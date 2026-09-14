@@ -82,6 +82,7 @@ def log_event(task_num, status, details, project_id=None):
         logger.log_struct(payload, severity="INFO")
         logger.log_text(f"TASK_{task_num}_PASSED", severity="INFO")
         print(f"[Activity Tracking Logged] Task {task_num}: {status} (Project: {resolved_project})")
+        print("[Tip] Wait up to 1 minute before clicking Check my progress in the lab console to allow Cloud Logging events to index.")
         return True
     except Exception as e:
         print(f"[ERROR] Cloud Logging emission failed: {e}")
