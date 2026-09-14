@@ -15,6 +15,8 @@ import subprocess
 import argparse
 from google.cloud import logging as cloud_logging
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 def get_project_id():
     cmd = "gcloud config get-value project 2>/dev/null"
     try:
@@ -152,7 +154,7 @@ def verify_task_2():
 
 def verify_task_3():
     print("Running Automated Performance & Security Tests (pytest)...")
-    res = subprocess.run(["pytest", "tests/"], capture_output=True, text=True)
+    res = subprocess.run(["pytest", os.path.join(BASE_DIR, "tests")], cwd=BASE_DIR, capture_output=True, text=True)
     print(res.stdout)
     if res.stderr:
         print(res.stderr)
@@ -167,8 +169,8 @@ def verify_task_3():
 
 def verify_task_4():
     print("Checking Agents CLI Validation and Package Bundle...")
-    manifest_path = "dist/skill-manifest.json"
-    archive_path = "dist/audit-telemetry-fix.tar.gz"
+    manifest_path = os.path.join(BASE_DIR, "dist", "skill-manifest.json")
+    archive_path = os.path.join(BASE_DIR, "dist", "audit-telemetry-fix.tar.gz")
 
     has_manifest = os.path.exists(manifest_path) and os.path.getsize(manifest_path) > 0
     has_archive = os.path.exists(archive_path) and os.path.getsize(archive_path) > 0
