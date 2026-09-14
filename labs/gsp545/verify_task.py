@@ -23,18 +23,41 @@ except ImportError:
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def get_project_id():
-    cmd = "gcloud config get-value project 2>/dev/null"
+    # 1. Check environment variables (DEVSHELL_PROJECT_ID is default in Cloud Shell)
+    for env_var in ["DEVSHELL_PROJECT_ID", "GOOGLE_CLOUD_PROJECT", "GCP_PROJECT", "PROJECT_ID"]:
+        val = os.environ.get(env_var, "").strip()
+        if val and val != "(unset)":
+            return val
+
+    # 2. Check gcloud CLI configuration
+    for cmd in ["gcloud config get-value project 2>/dev/null", "gcloud config get project 2>/dev/null"]:
+        try:
+            res = subprocess.check_output(cmd, shell=True).decode().strip()
+            if res and res != "(unset)":
+                return res
+        except Exception:
+            pass
+
+    # 3. Check Google Auth default credentials
     try:
-        res = subprocess.check_output(cmd, shell=True).decode().strip()
-        return res
+        import google.auth
+        _, auth_project = google.auth.default()
+        if auth_project and auth_project != "(unset)":
+            return auth_project
     except Exception:
-        return os.environ.get("GOOGLE_CLOUD_PROJECT", "test-project")
+        pass
+
+    return None
 
 def log_event(task_num, status, details):
     if not HAS_LOGGING:
         return
     try:
         project_id = get_project_id()
+        if not project_id:
+            print("[Notice] Cloud Logging skipped: No Google Cloud Project ID detected in environment.")
+            return
+
         client = cloud_logging.Client(project=project_id)
         logger = client.logger("gsp545-validation")
         payload = {
@@ -44,7 +67,7 @@ def log_event(task_num, status, details):
         }
         logger.log_struct(payload, severity="INFO")
         logger.log_text(f"TASK_{task_num}_PASSED", severity="INFO")
-        print(f"[Activity Tracking Logged] Task {task_num}: {status}")
+        print(f"[Activity Tracking Logged] Task {task_num}: {status} (Project: {project_id})")
     except Exception as e:
         print(f"[Notice] Cloud Logging emission: {e}")
 
