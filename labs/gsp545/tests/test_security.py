@@ -1,7 +1,13 @@
+import sys
+import os
+
+# Ensure repository root is on sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import pytest
 import sqlite3
-import os
 from db.error_logger import log_error_event, search_errors_by_device, DB_PATH
+
 
 @pytest.fixture(autouse=True)
 def setup_test_db():

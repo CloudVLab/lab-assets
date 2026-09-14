@@ -1,6 +1,13 @@
+import sys
+import os
+
+# Ensure repository root is on sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import time
 import pytest
 from telemetry_processor import process_telemetry_batch
+
 
 def test_telemetry_batch_performance():
     # 50 records
