@@ -1,7 +1,14 @@
+import os
+import sys
 import pytest
+
+# Ensure repository root is in sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from agent.diagnostic_agent import DiagnosticAgent
 from agent.supervisor_agent import GridCareSupervisorAgent
 from agent.tools import query_hardware_manuals
+
 
 def test_diagnostic_agent_memory_persistence():
     agent = DiagnosticAgent()
