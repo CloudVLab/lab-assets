@@ -79,25 +79,34 @@ def log_event(task_num, status, details, project_id=None):
             "details": details
         }
 
-        # 1. Primary: Python Google Cloud Logging SDK
+        # 1. Primary: Python Google Cloud Logging SDK with Synchronous Transport
         try:
+            from google.cloud.logging_v2.handlers.transports import SyncTransport
             client = cloud_logging.Client(project=resolved_project)
-            logger = client.logger("gsp546-validation")
+            logger = client.logger("gsp546-validation", transport=SyncTransport)
             logger.log_struct(payload, severity="INFO")
             logger.log_text(f"TASK_{task_num}_{status}", severity="INFO")
         except Exception as sdk_err:
-            print(f"[Warning] Python Logging SDK emission error: {sdk_err}")
+            try:
+                client = cloud_logging.Client(project=resolved_project)
+                logger = client.logger("gsp546-validation")
+                logger.log_struct(payload, severity="INFO")
+                logger.log_text(f"TASK_{task_num}_{status}", severity="INFO")
+            except Exception as e2:
+                print(f"[Warning] Python Logging SDK emission error: {e2}")
 
-        # 2. Synchronous fallback: gcloud logging write CLI
+        # 2. Direct synchronous CLI emission via gcloud (guarantees immediate persistence)
         try:
             json_payload_str = json.dumps(payload).replace("'", "'\\''")
             subprocess.run(
-                f"gcloud logging write gsp546-validation '{json_payload_str}' --payload-type=json --project={resolved_project} 2>/dev/null",
-                shell=True
+                ["gcloud", "logging", "write", "gsp546-validation", json_payload_str, "--payload-type=json", f"--project={resolved_project}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
             )
             subprocess.run(
-                f"gcloud logging write gsp546-validation 'TASK_{task_num}_{status}' --payload-type=text --project={resolved_project} 2>/dev/null",
-                shell=True
+                ["gcloud", "logging", "write", "gsp546-validation", f"TASK_{task_num}_{status}", "--payload-type=text", f"--project={resolved_project}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
             )
         except Exception:
             pass
