@@ -176,6 +176,33 @@ def verify_task_1(project_id=None):
         print(f"FAILED: Extension hook script at {expanded_hook} appears empty.")
         return False
 
+    # Test sandbox extension hook interception behavior
+    try:
+        unsafe_payload = "SELECT * FROM error_logs WHERE device_id = 'test' OR '1'='1'"
+        hook_res = subprocess.run(
+            [sys.executable, expanded_hook, unsafe_payload],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if hook_res.returncode == 0:
+            print("FAILED: Extension hook query_guard.py did not block unsafe SQL injection pattern (expected non-zero exit code).")
+            return False
+
+        safe_payload = "SELECT * FROM error_logs WHERE device_id = ?"
+        safe_res = subprocess.run(
+            [sys.executable, expanded_hook, safe_payload],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if safe_res.returncode != 0:
+            print("FAILED: Extension hook query_guard.py blocked safe parameterized query (expected exit code 0).")
+            return False
+    except Exception as e:
+        print(f"FAILED: Error testing extension hook execution: {e}")
+        return False
+
     print(f"SUCCESS: Task 1 verified ({matched_path} with MCP server and extension hook).")
     log_event(1, "PASSED", "Antigravity MCP server and extension hook registered successfully.", project_id=project_id)
     return True
