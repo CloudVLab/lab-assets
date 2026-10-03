@@ -15,7 +15,10 @@ shift
 
 echo "Launching $MAIN project=$PROJECT bucket=$BUCKET $*"
 
-export PATH=/usr/lib/jvm/java-8-openjdk-amd64/bin/:$PATH
+if [ -d /usr/lib/jvm/java-8-openjdk-amd64/bin/ ]; then
+   export PATH=/usr/lib/jvm/java-8-openjdk-amd64/bin/:$PATH
+fi
+
 mvn compile -e exec:java \
  -Dexec.mainClass=$MAIN \
       -Dexec.args="--project=$PROJECT \
@@ -24,8 +27,3 @@ mvn compile -e exec:java \
       --region=$REGION \
       --workerMachineType=e2-standard-2 \
       --runner=DataflowRunner"
-
-
-# If you run into quota problems, add this option the command line above
-#     --maxNumWorkers=2 
-# In this case, you will not be able to view autoscaling, however.
