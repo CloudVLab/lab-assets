@@ -14,6 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import urllib.request
 import time
 import gzip
 import logging
@@ -24,6 +26,8 @@ from google.cloud import pubsub_v1
 TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 TOPIC = 'sandiego'
 INPUT = 'sensor_obs2008.csv.gz'
+DATASET_URL = 'https://storage.googleapis.com/cloud-training-demos/sandiego/sensor_obs2008.csv.gz'
+
 
 def publish(publisher, topic, events):
    numobs = len(events)
@@ -98,6 +102,21 @@ if __name__ == '__main__':
       except Exception as e:
          logging.warning('Topic check: {}'.format(e))
 
+   # Ensure input dataset is present, download from GCS if not present
+   if not os.path.exists(INPUT):
+      script_dir = os.path.dirname(os.path.abspath(__file__))
+      alt_path = os.path.join(script_dir, INPUT)
+      if os.path.exists(alt_path):
+         INPUT = alt_path
+      else:
+         logging.info(f'Dataset {INPUT} not found locally. Downloading from {DATASET_URL}...')
+         try:
+            urllib.request.urlretrieve(DATASET_URL, INPUT)
+            logging.info(f'Successfully downloaded {INPUT}')
+         except Exception as e:
+            logging.error(f'Failed to download {INPUT}: {e}')
+            raise
+
    # notify about each line in the input file
    programStartTime = datetime.datetime.utcnow() 
    with gzip.open(INPUT, 'rb') as ifp:
@@ -105,3 +124,4 @@ if __name__ == '__main__':
       firstObsTime = peek_timestamp(ifp)
       logging.info('Sending sensor data from {}'.format(firstObsTime))
       simulate(publisher, event_type, ifp, firstObsTime, programStartTime, args.speedFactor)
+
