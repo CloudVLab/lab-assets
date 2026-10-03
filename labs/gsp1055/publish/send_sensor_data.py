@@ -19,7 +19,7 @@ import gzip
 import logging
 import argparse
 import datetime
-from google.cloud import pubsub
+from google.cloud import pubsub_v1
 
 TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 TOPIC = 'sandiego'
@@ -30,7 +30,7 @@ def publish(publisher, topic, events):
    if numobs > 0:
        logging.info('Publishing {0} events from {1}'.format(numobs, get_timestamp(events[0])))
        for event_data in events:
-         publisher.publish(topic,event_data)
+         publisher.publish(topic, event_data)
 
 def get_timestamp(line):
    ## convert from bytes to str
@@ -40,7 +40,7 @@ def get_timestamp(line):
    timestamp = line.split(',')[0]
    return datetime.datetime.strptime(timestamp, TIME_FORMAT)
 
-def simulate(topic, ifp, firstObsTime, programStart, speedFactor):
+def simulate(publisher, topic, ifp, firstObsTime, programStart, speedFactor):
    # sleep computation
    def compute_sleep_secs(obs_time):
         time_elapsed = (datetime.datetime.utcnow() - programStart).seconds
@@ -86,14 +86,17 @@ if __name__ == '__main__':
 
    # create Pub/Sub notification topic
    logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.INFO)
-   publisher = pubsub.PublisherClient()
-   event_type = publisher.topic_path(args.project,TOPIC)
+   publisher = pubsub_v1.PublisherClient()
+   event_type = publisher.topic_path(args.project, TOPIC)
    try:
-      publisher.get_topic(event_type)
+      publisher.get_topic(request={"topic": event_type})
       logging.info('Reusing pub/sub topic {}'.format(TOPIC))
-   except:
-      publisher.create_topic(event_type)
-      logging.info('Creating pub/sub topic {}'.format(TOPIC))
+   except Exception:
+      try:
+         publisher.create_topic(request={"topic": event_type})
+         logging.info('Creating pub/sub topic {}'.format(TOPIC))
+      except Exception as e:
+         logging.warning('Topic check: {}'.format(e))
 
    # notify about each line in the input file
    programStartTime = datetime.datetime.utcnow() 
@@ -101,4 +104,4 @@ if __name__ == '__main__':
       header = ifp.readline()  # skip header
       firstObsTime = peek_timestamp(ifp)
       logging.info('Sending sensor data from {}'.format(firstObsTime))
-      simulate(event_type, ifp, firstObsTime, programStartTime, args.speedFactor)
+      simulate(publisher, event_type, ifp, firstObsTime, programStartTime, args.speedFactor)
