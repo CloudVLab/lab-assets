@@ -51,7 +51,7 @@ steps:
     args:
       - '-c'
       - |
-          apt-get install -y jq
+          apt-get update && apt-get install -y jq
           export CANARY=$$(gcloud run services describe hello-cloudrun --platform managed  --region ${_REGION} --format=json | jq --raw-output ".spec.traffic[] | select (.tag==\"canary\")|.revisionName")
           export PROD=$$(gcloud run services describe hello-cloudrun --platform managed  --region ${_REGION} --format=json | jq --raw-output ".spec.traffic[] | select (.tag==\"prod\")|.revisionName")
 
