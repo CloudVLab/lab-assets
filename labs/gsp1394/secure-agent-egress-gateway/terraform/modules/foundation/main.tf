@@ -28,6 +28,14 @@ module "project" {
 
   services = [for s in var.enabled_services : s if s != "aiplatform.googleapis.com"]
 
+  # Google grants service agents their default roles when an API is enabled.
+  # Re-granting them here requires unrestricted projectIamAdmin, which lab
+  # students do not have, so every apply failed with 403 "Policy update
+  # access denied" on module.project.google_project_iam_member.service_agents.
+  service_agents_config = {
+    grant_default_roles = false
+  }
+
   logging_data_access = var.logging_data_access
 
   # NOTE: GPU quotas must be requested manually via GCP Console.

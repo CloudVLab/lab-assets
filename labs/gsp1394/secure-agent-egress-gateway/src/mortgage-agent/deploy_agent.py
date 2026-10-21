@@ -626,6 +626,24 @@ def main() -> None:
             project_number = None
             org_id = tf_vars.get("organization_id") or os.environ.get("ORG_ID")
             if not org_id:
+                # Same resolution as terraform/main.tf data "external" "org_id":
+                # walk the project ancestry and take the organization node.
+                try:
+                    res = subprocess.run(
+                        ["gcloud", "projects", "get-ancestors", project_id, "--format=json"],
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
+                    org_id = next(
+                        (a["id"] for a in json.loads(res.stdout or "[]") if a.get("type") == "organization"),
+                        None,
+                    )
+                    if org_id:
+                        print(f"Resolved organization ID from project ancestry: {org_id}")
+                except Exception as e:
+                    print(f"Warning: could not resolve organization ID via gcloud: {e}")
+            if not org_id:
                 print(
                     "Error: Could not resolve organization_id/ORG_ID. Please set it in "
                     "terraform.tfvars or as ORG_ID environment variable.",
