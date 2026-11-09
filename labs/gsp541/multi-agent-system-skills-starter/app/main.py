@@ -1,12 +1,14 @@
 import logging
 import os
 import json
+import re
+import urllib.parse
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
 from httpx_sse import aconnect_sse
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -53,6 +55,19 @@ else:
 
 clients: Dict[str, httpx.AsyncClient] = {}
 
+ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+
+def validate_identifier(val: str, field_name: str) -> str:
+    """Validate user_id / session_id against path traversal injection (CWE-639, b/581344308)."""
+    if not val or not ID_REGEX.match(val):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid {field_name}: must match ^[a-zA-Z0-9_-]{{1,64}}$",
+        )
+    return urllib.parse.quote(val, safe="")
+
+
 async def get_client(agent_server_origin: str) -> httpx.AsyncClient:
     global clients
     if agent_server_origin not in clients:
@@ -60,11 +75,12 @@ async def get_client(agent_server_origin: str) -> httpx.AsyncClient:
     return clients[agent_server_origin]
 
 async def create_session(agent_server_origin: str, agent_name: str, user_id: str) -> Dict[str, Any]:
+    safe_user_id = validate_identifier(user_id, "user_id")
     httpx_client = await get_client(agent_server_origin)
     headers=[
         ("Content-Type", "application/json")
     ]
-    session_request_url = f"{agent_server_origin}/apps/{agent_name}/users/{user_id}/sessions"
+    session_request_url = f"{agent_server_origin}/apps/{agent_name}/users/{safe_user_id}/sessions"
     session_response = await httpx_client.post(
         session_request_url,
         headers=headers
@@ -73,11 +89,13 @@ async def create_session(agent_server_origin: str, agent_name: str, user_id: str
     return session_response.json()
 
 async def get_session(agent_server_origin: str, agent_name: str, user_id: str, session_id: str) -> Optional[Dict[str, Any]]:
+    safe_user_id = validate_identifier(user_id, "user_id")
+    safe_session_id = validate_identifier(session_id, "session_id")
     httpx_client = await get_client(agent_server_origin)
     headers=[
         ("Content-Type", "application/json")
     ]
-    session_request_url = f"{agent_server_origin}/apps/{agent_name}/users/{user_id}/sessions/{session_id}"
+    session_request_url = f"{agent_server_origin}/apps/{agent_name}/users/{safe_user_id}/sessions/{safe_session_id}"
     session_response = await httpx_client.get(
         session_request_url,
         headers=headers
@@ -154,25 +172,28 @@ async def chat_stream(request: SimpleChatRequest):
     if not agent_name:
         agent_name = (await list_agents(agent_server_url))[0] # type: ignore
 
+    safe_user_id = validate_identifier(request.user_id, "user_id")
+    safe_session_id = validate_identifier(request.session_id, "session_id") if request.session_id else None
+
     session = None
-    if request.session_id:
+    if safe_session_id:
         session = await get_session(
             agent_server_url, # type: ignore
             agent_name,
-            request.user_id,
-            request.session_id
+            safe_user_id,
+            safe_session_id
         )
     if session is None:
         session = await create_session(
             agent_server_url, # type: ignore
             agent_name,
-            request.user_id
+            safe_user_id
         )
 
     events = query_adk_sever(
         agent_server_url, # type: ignore
         agent_name,
-        request.user_id,
+        safe_user_id,
         request.message,
         session["id"]
     )
