@@ -1,4 +1,4 @@
-FROM gcr.io/deeplearning-platform-release/tf2-cpu 
+FROM gcr.io/deeplearning-platform-release/tf2-cpu
 COPY trainer /babyweight/trainer
 RUN apt update && \
     apt install --yes python3-pip && \
